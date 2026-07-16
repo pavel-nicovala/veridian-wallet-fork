@@ -50,6 +50,8 @@ export const config = {
         "appium:avdLaunchTimeout": 120000, // 2 minutes for Android 16 emulator to launch
         "appium:androidInstallTimeout": 90000, // 90 seconds for app installation on heavy Android 16 image
         "appium:adbExecTimeout": 180000, // 180 seconds (3 minutes) for ADB commands - increased for heavy operations
+        "appium:uiautomator2ServerInstallTimeout": 120000,
+        "appium:uiautomator2ServerLaunchTimeout": 120000, // default 30s
         "appium:suppressKillServer": false, // Allow killing ADB server if it becomes unresponsive
         "appium:forceAppLaunch": true, // Ensures a fresh start of the app process
         "appium:chromedriverArgs": ["--disable-dev-shm-usage", "--no-sandbox"], // Helps with Webview/CDP connection issues

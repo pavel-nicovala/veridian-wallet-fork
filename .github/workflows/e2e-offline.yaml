@@ -118,7 +118,13 @@ jobs:
           disable-animations: true
           disk-size: 6000M
           heap-size: 600M
+          ram-size: 4096M
+          cores: 3
           script: |
+            adb wait-for-device
+            timeout 240 bash -c 'until adb shell pm list packages 2>/dev/null | grep -q package:; do sleep 2; done'
+            adb shell input keyevent 82 || true
+            sleep 30
             npm run wdio:android:s24ultra -- --spec ./tests/features/offline/offline-behavior.feature
 
       - name: Dump backend logs
