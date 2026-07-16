@@ -16,7 +16,7 @@ export const config: Options.Testrunner = {
   bail: 0,
   baseUrl: "LACK_OF_BASE_URL",
   waitforTimeout: 1500,
-  connectionRetryTimeout: 45000,
+  connectionRetryTimeout: 300000,
   connectionRetryCount: 3,
   services: [],
   framework: "cucumber",

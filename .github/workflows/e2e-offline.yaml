@@ -96,7 +96,7 @@ jobs:
           ./gradlew assembleDebug
           cd ..
           # Dynamically set the APP_PATH for the test runner
-          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -1)
+          APK_PATH=$(find "$PWD/android/app/build/outputs/apk/debug" -name "*.apk" | head -1)
           echo "APP_PATH=$APK_PATH" >> "$GITHUB_ENV"
 
       # Note: no global Appium install/start here — the WDIO Appium service
