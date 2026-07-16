@@ -166,7 +166,9 @@ export class ProfileSetupScreen {
         return await this.welcomeTitle.isExisting().catch(() => false);
       },
       {
-        timeout: 15000,
+        // Identifier inception against KERIA + witnesses can take >15s on
+        // emulators (measured ~18s locally, slower on CI swiftshader images)
+        timeout: 60000,
         timeoutMsg: "Welcome screen did not appear",
       }
     );

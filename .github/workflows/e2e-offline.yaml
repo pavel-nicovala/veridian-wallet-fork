@@ -1,0 +1,176 @@
+name: e2e-offline
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  e2e-offline-android:
+    timeout-minutes: 90
+    # Honours the repo's RUNS_ON variable when set (see other workflows), but
+    # falls back to ubuntu-latest so the workflow runs in a fresh fork/clone
+    # without any repo configuration.
+    runs-on: ${{ vars.RUNS_ON && fromJson(vars.RUNS_ON) || 'ubuntu-latest' }}
+    steps:
+
+      # Running some environment optimization as per https://github.com/ReactiveCircus/android-emulator-runner/issues/324#issuecomment-2009351180
+      # From https://github.com/android/nowinandroid/pull/1219/files to fix flaky emulator start
+      # See https://github.com/ReactiveCircus/android-emulator-runner/issues/324#issuecomment-1998737488
+      - name: Delete unnecessary tools 🔧
+        # only run if runner is ubuntu-latest
+        if: ${{ runner.os == 'Linux' }}
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: false # Keep Don't remove Android tools
+          tool-cache: true # Remove image tool cache - rm -rf "$AGENT_TOOLSDIRECTORY"
+          dotnet: true # rm -rf /usr/share/dotnet
+          haskell: true # rm -rf /opt/ghc...
+          swap-storage: true # rm -f /mnt/swapfile (4GiB)
+          docker-images: false # Keep docker — the e2e backend runs in docker-compose
+          large-packages: false # includes google-cloud-sdk and it's slow
+
+      # Set up KVM permissions to enable efficient Android emulator runs by modifying udev rules for universal access.
+      # From https://github.com/android/nowinandroid/blob/main/.github/workflows/Build.yaml#L142
+      - name: Enable KVM group perms
+        # only run if runner is ubuntu-latest
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls /dev/kvm
+
+      # Fail fast if KVM can't actually work here
+      - name: Verify KVM is actually usable
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          echo "--- CPU virtualization extension flags ---"
+          grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u || true
+          if ! grep -Eq 'vmx|svm' /proc/cpuinfo; then
+            echo "::error::No hardware virtualization extensions (vmx/svm) exposed to this runner - KVM cannot work here regardless of /dev/kvm permissions."
+            exit 1
+          fi
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm does not exist on this runner."
+            exit 1
+          fi
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            ls -l /dev/kvm
+            echo "::error::/dev/kvm exists but is not read/write accessible to $(whoami) - the udev rule in the previous step did not take effect."
+            exit 1
+          fi
+          echo "KVM looks usable: virtualization extensions present and /dev/kvm is read/write accessible."
+
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Ephemeral backend: KERIA + witnesses only. The app inside the emulator
+      # reaches these published ports via 10.0.2.2; the test runner via 127.0.0.1.
+      # The offline e2e scenarios stop/start the keria container mid-test.
+      - name: Start ephemeral backend (KERIA + witnesses)
+        run: docker compose -f docker-compose.e2e.yaml up -d --wait --wait-timeout 120
+
+      - name: Verify backend readiness
+        run: |
+          for i in $(seq 1 24); do
+            # any HTTP response (even 404) proves KERIA is up; only refused connections fail
+            if curl -s -o /dev/null http://127.0.0.1:3901/spec.yaml; then
+              echo "KERIA is reachable from the host"
+              # KERIA must also reach the witnesses over the compose network, or
+              # identifier inception fails later with "unknown witness"
+              docker compose -f docker-compose.e2e.yaml exec -T keria python3 -c \
+                "import urllib.request; urllib.request.urlopen('http://witnesses:5642/oobi/BBilc4-L3tFUnfM_wJr4S4OJanAv_VmF_dJNN6vkf2Ha/controller?role=witness', timeout=5)"
+              echo "Witnesses are reachable from KERIA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "KERIA did not become reachable" >&2
+          docker compose -f docker-compose.e2e.yaml logs
+          exit 1
+
+      - name: Build project for E2E
+        run: |
+          export LANG=en_US.UTF-8
+          export KERIA_IP=10.0.2.2
+          npm run build:e2e
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleDebug
+          cd ..
+          # Dynamically set the APP_PATH for the test runner
+          APK_PATH=$(find "$PWD/android/app/build/outputs/apk/debug" -name "*.apk" | head -1)
+          echo "APP_PATH=$APK_PATH" >> "$GITHUB_ENV"
+
+      # Note: no global Appium install/start here — the WDIO Appium service
+      # (tests/config/wdio.appium.config.ts) spawns its own Appium on port 4733,
+      # and appium + uiautomator2 driver are npm devDependencies installed by `npm ci`.
+      - name: Run offline behavior E2E test
+        uses: reactivecircus/android-emulator-runner@b530d96654c385303d652368551fb075bc2f0b6b # v2.35.0
+        env:
+          NODE_OPTIONS: "--max_old_space_size=8192"
+          # Reload the Appium session after each scenario so app data is reset and
+          # every scenario (each onboards a fresh wallet) starts from the intro screen
+          RELOAD_SESSION: "true"
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -gpu swiftshader_indirect -no-snapshot -no-boot-anim
+          disable-animations: true
+          disk-size: 6000M
+          heap-size: 600M
+          ram-size: 4096M
+          cores: 3
+          script: |
+            adb wait-for-device
+            timeout 240 bash -c 'until adb shell pm list packages 2>/dev/null | grep -q package:; do sleep 2; done'
+            timeout 240 bash -c 'until adb shell service check settings 2>/dev/null | grep -qE ": found$"; do sleep 2; done'
+            adb shell input keyevent 82 || true
+            sleep 10
+            npm run wdio:android:s24ultra -- --spec ./tests/features/offline/offline-behavior.feature
+
+      - name: Dump backend logs
+        if: always()
+        run: docker compose -f docker-compose.e2e.yaml logs --timestamps || true
+
+      - name: Tear down ephemeral backend
+        if: always()
+        run: docker compose -f docker-compose.e2e.yaml down -v || true
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-offline-results
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            tests/.reports/allure-results
+            tests/screenshots
+            tests/.appium/appium.log
+            tests/.logs
+
+      - name: Cleanup
+        if: always()
+        run: |
+          pkill -f appium || true

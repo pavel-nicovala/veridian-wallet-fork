@@ -1,0 +1,57 @@
+# Ephemeral backend for the e2e suite (CI and local runs).
+# Only the services the wallet needs to onboard and stay connected: KERIA + witnesses.
+# Intentionally no restart policies — the offline e2e scenarios stop/start containers
+# to simulate backend outages, and a restart policy would fight that.
+# Data is throwaway: containers keep their writable layer across stop/start within a
+# run (so KERIA agent state survives the simulated outage), and `down -v` wipes it.
+name: veridian-e2e
+
+services:
+  keria:
+    image: ghcr.io/cardano-foundation/cf-identity-wallet/cf-idw-keria:1.2.0-fix-VT20-2191-Un-ordered-exchange-queries-pagination-is-not-reliable-re-orders-a-a1cbe1f
+    environment:
+      - KERI_AGENT_CORS=true
+      - ALLOW_INTRODUCTIONS=true
+      - REMOTE_SIGNING=true
+    volumes:
+      - ./keria-config/config.json:/keria/scripts/keri/cf/backer-oobis.json
+    entrypoint: keria start --config-file backer-oobis --config-dir ./scripts --loglevel INFO
+    ports:
+      - 3901:3901
+      - 3902:3902
+      - 3903:3903
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 3901), 2).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      witnesses:
+        condition: service_healthy
+
+  witnesses:
+    image: weboftrust/keri:1.1.26
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=UTF-8
+    entrypoint:
+      - kli
+    command:
+      - witness
+      - demo
+    volumes:
+      - ./keria-config/witnesses:/keripy/scripts/keri/cf/main
+    ports:
+      - 5642:5642
+      - 5643:5643
+      - 5644:5644
+      - 5645:5645
+      - 5646:5646
+      - 5647:5647
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 5642), 2).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
