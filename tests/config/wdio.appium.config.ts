@@ -48,7 +48,7 @@ export const config = {
         "appium:chromedriverConnectTimeout": 80 * 1000, // 80 seconds - correct W3C format
         "appium:autoGrantPermissions": true, // Automatically grant permissions (notifications, etc.)
         "appium:avdLaunchTimeout": 120000, // 2 minutes for Android 16 emulator to launch
-        "appium:androidInstallTimeout": 90000, // 90 seconds for app installation on heavy Android 16 image
+        "appium:androidInstallTimeout": 300000, // 300 seconds for app installation on heavy Android 16 image
         "appium:adbExecTimeout": 180000, // 180 seconds (3 minutes) for ADB commands - increased for heavy operations
         "appium:uiautomator2ServerInstallTimeout": 120000,
         "appium:uiautomator2ServerLaunchTimeout": 120000, // default 30s
