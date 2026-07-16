@@ -4,8 +4,8 @@ import process from "process";
 export const config = {
   ...sharedConfig,
   ...{
-    host: "0.0.0.0",
-    port: 4723,
+    host: "127.0.0.1",
+    port: 4733,
     services: [
       [
         "appium",
@@ -17,12 +17,14 @@ export const config = {
             // https://github.com/webdriverio/webdriverio/tree/master/packages/wdio-appium-service
             // This is needed to tell Appium that we can execute local ADB commands
             // and to automatically download the latest version of ChromeDriver
+            address: "127.0.0.1",
+            port: 4733,
             relaxedSecurity: true,
-            allowInsecure: ["chromedriver_autodownload"],
+            allowInsecure: "chromedriver_autodownload",
             log: "./tests/.appium/appium.log",
             logLevel: "info",
           },
-          command: "appium",
+          command: "./node_modules/.bin/appium",
         },
       ],
     ],
@@ -37,6 +39,9 @@ export const config = {
         "appium:fullReset": false, // Don't uninstall app, but ensure clean state
         "appium:app": process.env.APP_PATH,
         "appium:appPackage": "org.cardanofoundation.idw", // MUST match your app ID
+        "appium:appActivity": "org.cardanofoundation.idw.MainActivity",
+        "appium:appWaitActivity": "org.cardanofoundation.idw.MainActivity,com.android.permissioncontroller.permission.ui.GrantPermissionsActivity",
+        "appium:appWaitPackage": "org.cardanofoundation.idw",
         "appium:webviewDevtoolsPort": 9222,
         "appium:enableWebviewDetailsCollection": false, // CRITICAL: Prevents CDP collection for all webviews (eliminates 2000ms timeouts)
         "appium:newCommandTimeout": 260,
